@@ -112,6 +112,16 @@ enum Commands {
         #[arg(short, long, default_value = "us-east-1")]
         region: String,
     },
+    
+    /// Calculate subnet splits
+    Subnet {
+        /// VPC CIDR (e.g., 10.0.0.0/16)
+        cidr: String,
+        
+        /// Number of subnets to create
+        #[arg(short, long)]
+        count: usize,
+    },
 }
 
 fn main() -> Result<()> {
@@ -323,7 +333,76 @@ fn main() -> Result<()> {
         Commands::Cost { region } => {
             aws::estimate_costs(&region)?;
         }
+        
+        Commands::Subnet { cidr, count } => {
+            calculate_subnets(&cidr, count)?;
+        }
     }
+    
+    Ok(())
+}
+
+fn calculate_subnets(cidr: &str, count: usize) -> Result<()> {
+    println!("{}", "Subnet Calculator".cyan().bold());
+    println!("{}", "═".repeat(70).bright_black());
+    println!("VPC CIDR: {}", cidr.yellow());
+    println!("Subnets: {}", count.to_string().cyan());
+    println!();
+    
+    // Parse CIDR
+    let parts: Vec<&str> = cidr.split('/').collect();
+    if parts.len() != 2 {
+        return Err(anyhow::anyhow!("Invalid CIDR format"));
+    }
+    
+    let base_ip = parts[0];
+    let prefix: u32 = parts[1].parse()?;
+    
+    // Calculate new prefix length
+    let bits_needed = (count as f64).log2().ceil() as u32;
+    let new_prefix = prefix + bits_needed;
+    
+    if new_prefix > 28 {
+        return Err(anyhow::anyhow!("Too many subnets - would result in /{} (max /28)", new_prefix));
+    }
+    
+    let hosts_per_subnet = 2u32.pow(32 - new_prefix) - 2; // -2 for network and broadcast
+    
+    println!("Original: {}", format!("/{} ({} hosts)", prefix, 2u32.pow(32 - prefix) - 2).bright_black());
+    println!("New subnets: {}", format!("/{} ({} hosts each)", new_prefix, hosts_per_subnet).green());
+    println!();
+    
+    // Parse base IP
+    let ip_parts: Vec<u32> = base_ip.split('.')
+        .map(|s| s.parse().unwrap_or(0))
+        .collect();
+    
+    if ip_parts.len() != 4 {
+        return Err(anyhow::anyhow!("Invalid IP format"));
+    }
+    
+    let base_ip_num = (ip_parts[0] << 24) | (ip_parts[1] << 16) | (ip_parts[2] << 8) | ip_parts[3];
+    let subnet_size = 2u32.pow(32 - new_prefix);
+    
+    println!("{}", "Subnet Allocations:".yellow().bold());
+    
+    for i in 0..count {
+        let subnet_ip_num = base_ip_num + (i as u32 * subnet_size);
+        let octet1 = (subnet_ip_num >> 24) & 0xFF;
+        let octet2 = (subnet_ip_num >> 16) & 0xFF;
+        let octet3 = (subnet_ip_num >> 8) & 0xFF;
+        let octet4 = subnet_ip_num & 0xFF;
+        
+        println!("  Subnet {}: {}.{}.{}.{}/{} ({} usable hosts)", 
+            i + 1,
+            octet1, octet2, octet3, octet4,
+            new_prefix,
+            hosts_per_subnet.to_string().cyan()
+        );
+    }
+    
+    println!();
+    println!("{}", "═".repeat(70).bright_black());
     
     Ok(())
 }
