@@ -1,0 +1,68 @@
+name: Security Compliance Check
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run daily at 9 AM UTC
+    - cron: '0 9 * * *'
+
+jobs:
+  compliance:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Build netkit
+      run: cargo build --release
+    
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: Run Compliance Check (Single Region)
+      run: |
+        ./target/release/netkit compliance --strict --json > compliance-report.json
+        cat compliance-report.json | jq '.'
+    
+    - name: Run Multi-Region Scan
+      run: |
+        ./target/release/netkit compliance --all-regions --strict --json > multi-region-report.json
+        cat multi-region-report.json | jq '.'
+    
+    - name: Upload Reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: compliance-reports
+        path: |
+          compliance-report.json
+          multi-region-report.json
+    
+    - name: Check for Critical Issues
+      run: |
+        CRITICAL=$(cat compliance-report.json | jq '.critical')
+        HIGH=$(cat compliance-report.json | jq '.high')
+        
+        if [ "$CRITICAL" -gt 0 ]; then
+          echo "❌ CRITICAL security issues found: $CRITICAL"
+          exit 2
+        elif [ "$HIGH" -gt 0 ]; then
+          echo "⚠️  HIGH severity issues found: $HIGH"
+          exit 1
+        else
+          echo "✅ No critical or high severity issues"
+          exit 0
+        fi
