@@ -776,7 +776,7 @@ fn check_broad_cidr(
     }
 }
 
-pub fn check_compliance(region: &str, vpc_filter: Option<&str>, json_output: bool) -> Result<()> {
+pub fn check_compliance(region: &str, vpc_filter: Option<&str>, json_output: bool, strict: bool) -> Result<i32> {
     if !json_output {
         println!("{}", "Security Compliance Check".cyan().bold());
         println!("{}", "═".repeat(70).bright_black());
@@ -887,7 +887,196 @@ pub fn check_compliance(region: &str, vpc_filter: Option<&str>, json_output: boo
             high.to_string().yellow().bold(),
             medium.to_string().bright_yellow()
         );
+        
+        // Return exit code
+        let exit_code = if critical > 0 {
+            2
+        } else if high > 0 {
+            1
+        } else {
+            0
+        };
+        
+        return Ok(exit_code);
     }
+    
+    // For JSON output, calculate exit code
+    let critical = issues.iter().filter(|i| i.severity == "CRITICAL").count();
+    let high = issues.iter().filter(|i| i.severity == "HIGH").count();
+    
+    let exit_code = if critical > 0 {
+        2
+    } else if high > 0 {
+        1
+    } else {
+        0
+    };
+    
+    Ok(exit_code)
+}
+
+pub fn check_compliance_all_regions(vpc_filter: Option<&str>, json_output: bool, strict: bool) -> Result<i32> {
+    let regions = vec![
+        "us-east-1", "us-east-2", "us-west-1", "us-west-2",
+        "eu-west-1", "eu-west-2", "eu-central-1",
+        "ap-southeast-1", "ap-southeast-2", "ap-northeast-1",
+    ];
+    
+    if !json_output {
+        println!("{}", "Multi-Region Compliance Scan".cyan().bold());
+        println!("{}", "═".repeat(70).bright_black());
+        println!("Scanning {} regions...\n", regions.len());
+    }
+    
+    let mut max_exit_code = 0;
+    let mut total_issues = 0;
+    
+    for region in &regions {
+        if !json_output {
+            println!("{} Scanning {}...", "→".cyan(), region.yellow());
+        }
+        
+        match check_compliance(region, vpc_filter, json_output, false) {
+            Ok(exit_code) => {
+                max_exit_code = max_exit_code.max(exit_code);
+                if exit_code > 0 {
+                    total_issues += 1;
+                }
+            }
+            Err(e) => {
+                if !json_output {
+                    println!("  {} Error: {}", "✗".red(), e);
+                }
+            }
+        }
+        
+        if !json_output {
+            println!();
+        }
+    }
+    
+    if !json_output {
+        println!("{}", "═".repeat(70).bright_black());
+        println!("Scan complete: {} region(s) with issues", total_issues.to_string().red().bold());
+    }
+    
+    Ok(max_exit_code)
+}
+
+pub fn estimate_costs(region: &str) -> Result<()> {
+    println!("{}", "AWS Cost Estimator".cyan().bold());
+    println!("{}", "═".repeat(70).bright_black());
+    println!("Region: {}", region.yellow());
+    println!();
+    
+    // Pricing (approximate, us-east-1)
+    let nat_gateway_hourly = 0.045;
+    let nat_gateway_per_gb = 0.045;
+    let tgw_attachment_hourly = 0.05;
+    let tgw_per_gb = 0.02;
+    
+    let hours_per_month = 730.0;
+    
+    // Get NAT Gateways
+    let nat_output = Command::new("aws")
+        .args(&["ec2", "describe-nat-gateways", "--region", region])
+        .output()?;
+    
+    let nat_json: Value = serde_json::from_slice(&nat_output.stdout)?;
+    let empty_vec = vec![];
+    let nat_gateways = nat_json["NatGateways"].as_array().unwrap_or(&empty_vec);
+    let active_nats = nat_gateways.iter()
+        .filter(|n| n["State"].as_str() == Some("available"))
+        .count();
+    
+    // Get Transit Gateways
+    let tgw_output = Command::new("aws")
+        .args(&["ec2", "describe-transit-gateways", "--region", region])
+        .output()?;
+    
+    let tgw_json: Value = serde_json::from_slice(&tgw_output.stdout)?;
+    let empty_vec2 = vec![];
+    let tgws = tgw_json["TransitGateways"].as_array().unwrap_or(&empty_vec2);
+    let active_tgws = tgws.iter()
+        .filter(|t| t["State"].as_str() == Some("available"))
+        .count();
+    
+    // Get TGW attachments
+    let mut total_attachments = 0;
+    for tgw in tgws {
+        if let Some(tgw_id) = tgw["TransitGatewayId"].as_str() {
+            let att_output = Command::new("aws")
+                .args(&[
+                    "ec2", "describe-transit-gateway-attachments",
+                    "--region", region,
+                    "--filters", &format!("Name=transit-gateway-id,Values={}", tgw_id)
+                ])
+                .output()?;
+            
+            let att_json: Value = serde_json::from_slice(&att_output.stdout)?;
+            if let Some(atts) = att_json["TransitGatewayAttachments"].as_array() {
+                total_attachments += atts.iter()
+                    .filter(|a| a["State"].as_str() == Some("available"))
+                    .count();
+            }
+        }
+    }
+    
+    // Get running instances
+    let inst_output = Command::new("aws")
+        .args(&["ec2", "describe-instances", "--region", region])
+        .output()?;
+    
+    let inst_json: Value = serde_json::from_slice(&inst_output.stdout)?;
+    let mut running_instances = 0;
+    
+    if let Some(reservations) = inst_json["Reservations"].as_array() {
+        for reservation in reservations {
+            if let Some(instances) = reservation["Instances"].as_array() {
+                running_instances += instances.iter()
+                    .filter(|i| i["State"]["Name"].as_str() == Some("running"))
+                    .count();
+            }
+        }
+    }
+    
+    println!("{}", "Resource Summary:".yellow().bold());
+    println!("  NAT Gateways: {}", active_nats.to_string().cyan());
+    println!("  Transit Gateways: {}", active_tgws.to_string().cyan());
+    println!("  TGW Attachments: {}", total_attachments.to_string().cyan());
+    println!("  Running Instances: {}", running_instances.to_string().cyan());
+    println!();
+    
+    println!("{}", "Estimated Monthly Costs:".yellow().bold());
+    
+    let nat_cost = active_nats as f64 * nat_gateway_hourly * hours_per_month;
+    if active_nats > 0 {
+        println!("  NAT Gateways: ${:.2} (${:.2}/hr × {} × {} hrs)", 
+            nat_cost,
+            nat_gateway_hourly,
+            active_nats,
+            hours_per_month
+        );
+        println!("    {} Data transfer not included (${}/GB)", "+".yellow(), nat_gateway_per_gb);
+    }
+    
+    let tgw_attachment_cost = total_attachments as f64 * tgw_attachment_hourly * hours_per_month;
+    if total_attachments > 0 {
+        println!("  TGW Attachments: ${:.2} (${:.2}/hr × {} × {} hrs)", 
+            tgw_attachment_cost,
+            tgw_attachment_hourly,
+            total_attachments,
+            hours_per_month
+        );
+        println!("    {} Data transfer not included (${}/GB)", "+".yellow(), tgw_per_gb);
+    }
+    
+    let total_base = nat_cost + tgw_attachment_cost;
+    
+    println!();
+    println!("{}", "═".repeat(70).bright_black());
+    println!("Total (base): ${:.2}/month", total_base.to_string().green().bold());
+    println!("{}", "Note: Excludes data transfer, EC2 instances, and other services".bright_black());
     
     Ok(())
 }

@@ -83,6 +83,14 @@ enum Commands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+        
+        /// Scan all regions
+        #[arg(long)]
+        all_regions: bool,
+        
+        /// Exit with error code if issues found
+        #[arg(long)]
+        strict: bool,
     },
     
     /// Compare two VPCs
@@ -93,6 +101,13 @@ enum Commands {
         /// Second VPC ID
         vpc2: String,
         
+        /// AWS Region
+        #[arg(short, long, default_value = "us-east-1")]
+        region: String,
+    },
+    
+    /// Estimate monthly AWS costs
+    Cost {
         /// AWS Region
         #[arg(short, long, default_value = "us-east-1")]
         region: String,
@@ -289,12 +304,24 @@ fn main() -> Result<()> {
             aws::analyze_security_groups(&region, vpc.as_deref())?;
         }
         
-        Commands::Compliance { region, vpc, json } => {
-            aws::check_compliance(&region, vpc.as_deref(), json)?;
+        Commands::Compliance { region, vpc, json, all_regions, strict } => {
+            let exit_code = if all_regions {
+                aws::check_compliance_all_regions(vpc.as_deref(), json, strict)?
+            } else {
+                aws::check_compliance(&region, vpc.as_deref(), json, strict)?
+            };
+            
+            if strict && exit_code != 0 {
+                std::process::exit(exit_code);
+            }
         }
         
         Commands::Diff { vpc1, vpc2, region } => {
             aws::diff_vpcs(&region, &vpc1, &vpc2)?;
+        }
+        
+        Commands::Cost { region } => {
+            aws::estimate_costs(&region)?;
         }
     }
     

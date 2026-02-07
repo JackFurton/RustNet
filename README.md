@@ -15,7 +15,12 @@ A modular network analysis toolkit built in Rust for local network discovery and
 - **`netkit aws-map`** - Map VPC topology with subnets, instances, and route tables
 - **`netkit aws-map --dot`** - Export topology to Graphviz DOT format
 - **`netkit sec-groups`** - Analyze security group rules
+- **`netkit compliance`** - Check security group compliance
+  - **`--all-regions`** - Scan all AWS regions
+  - **`--strict`** - Exit with error code if issues found (for CI/CD)
+  - **`--json`** - Output as JSON
 - **`netkit diff <vpc1> <vpc2>`** - Compare two VPCs side-by-side
+- **`netkit cost`** - Estimate monthly AWS costs (NAT Gateway, Transit Gateway)
 
 ## Installation
 
@@ -56,6 +61,12 @@ netkit sec-groups --vpc vpc-12345678
 
 # Compare two VPCs
 netkit diff vpc-12345678 vpc-87654321
+
+# Estimate monthly costs
+netkit cost --region us-east-1
+
+# CI/CD integration - exit with error if issues found
+netkit compliance --strict --json | jq '.total_issues'
 ```
 
 ## Requirements
