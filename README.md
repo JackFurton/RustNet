@@ -2,32 +2,39 @@
 
 A modular network analysis toolkit built in Rust for local network discovery and AWS infrastructure mapping.
 
+**Available in two flavors:**
+- **Rust** - Fast compiled binary with local network tools
+- **Python** - Portable single-file version for isolated environments
+
 ## Features
 
-### Local Network Tools
+### Local Network Tools (Rust only)
 - **`netkit ping <host>`** - Colorized ping output
 - **`netkit interfaces`** - Display network interfaces
 - **`netkit routes`** - Show routing table
 - **`netkit scan <ip> --port <port>`** - TCP port scanner
 - **`netkit discover`** - Discover active hosts on local network
 
-### AWS Infrastructure Tools
+### AWS Infrastructure Tools (Both versions)
 - **`netkit aws-map`** - Map VPC topology with subnets, instances, and route tables
-- **`netkit aws-map --dot`** - Export topology to Graphviz DOT format
+- **`netkit aws-map --dot`** - Export topology to Graphviz DOT format (Rust only)
 - **`netkit sec-groups`** - Analyze security group rules
 - **`netkit compliance`** - Check security group compliance
-  - **`--all-regions`** - Scan all AWS regions
+  - **`--all-regions`** - Scan all AWS regions (Rust only)
   - **`--strict`** - Exit with error code if issues found (for CI/CD)
   - **`--json`** - Output as JSON
 - **`netkit diff <vpc1> <vpc2>`** - Compare two VPCs side-by-side
 - **`netkit cost`** - Estimate monthly AWS costs (NAT Gateway, Transit Gateway)
+- **`netkit subnet <cidr> --count <n>`** - Calculate subnet splits
 
 ## Installation
 
+### Rust Version (Recommended for local use)
+
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/netkit.git
-cd netkit
+git clone https://github.com/JackFurton/RustNet.git
+cd RustNet
 
 # Build release binary
 cargo build --release
@@ -35,6 +42,19 @@ cargo build --release
 # Binary will be at target/release/netkit
 ./target/release/netkit --help
 ```
+
+### Python Version (For isolated/hardened environments)
+
+```bash
+# Just copy the single file
+cp netkit.py ~/
+python3 netkit.py --help
+
+# Or use directly from repo
+python3 netkit/netkit.py --help
+```
+
+See [PYTHON.md](PYTHON.md) for Python-specific documentation.
 
 ## Usage Examples
 
