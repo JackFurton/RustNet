@@ -218,8 +218,8 @@ def vpc_map(args):
         cidr = vpc['CidrBlock']
         is_default = vpc.get('IsDefault', False)
         
-        icon = "🏠" if is_default else "🏢"
-        print(f"{icon} VPC: {Colors.CYAN}{vpc_id}{Colors.END} ({Colors.GREEN}{cidr}{Colors.END})")
+        default_marker = " [DEFAULT]" if is_default else ""
+        print(f"VPC: {Colors.CYAN}{vpc_id}{Colors.END} ({Colors.GREEN}{cidr}{Colors.END}){default_marker}")
         
         # Subnets
         subnets = ec2.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])['Subnets']
@@ -236,14 +236,22 @@ def vpc_map(args):
                 rt_id = rt['RouteTableId']
                 assocs = [a.get('SubnetId') for a in rt.get('Associations', []) if 'SubnetId' in a]
                 if assocs:
-                    print(f"    📋 {rt_id} (used by {len(assocs)} subnet(s))")
+                    print(f"    Route Table: {rt_id} (used by {len(assocs)} subnet(s))")
                     for route in rt.get('Routes', []):
                         dest = route.get('DestinationCidrBlock', route.get('DestinationPrefixListId', 'unknown'))
                         target = route.get('GatewayId') or route.get('NatGatewayId') or route.get('TransitGatewayId') or 'local'
                         state = route.get('State', 'active')
                         
-                        icon = '🌐' if target.startswith('igw-') else '🔀' if target.startswith('nat-') else '🔗' if target.startswith('tgw-') else '🏠'
-                        print(f"      {icon} {Colors.GREEN}{dest}{Colors.END} → {Colors.CYAN}{target}{Colors.END} ({state})")
+                        if target.startswith('igw-'):
+                            route_type = '[IGW]'
+                        elif target.startswith('nat-'):
+                            route_type = '[NAT]'
+                        elif target.startswith('tgw-'):
+                            route_type = '[TGW]'
+                        else:
+                            route_type = '[LOCAL]'
+                        
+                        print(f"      {route_type} {Colors.GREEN}{dest}{Colors.END} -> {Colors.CYAN}{target}{Colors.END} ({state})")
         
         # Instances
         instances_response = ec2.describe_instances(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
@@ -255,11 +263,19 @@ def vpc_map(args):
             print(f"  {Colors.YELLOW}Instances:{Colors.END}")
             for instance in instances:
                 state = instance['State']['Name']
-                state_icon = {'running': '✅', 'stopped': '⏸️', 'terminated': '❌'}.get(state, '⚠️')
+                
+                if state == 'running':
+                    state_marker = '[RUNNING]'
+                elif state == 'stopped':
+                    state_marker = '[STOPPED]'
+                elif state == 'terminated':
+                    state_marker = '[TERMINATED]'
+                else:
+                    state_marker = f'[{state.upper()}]'
                 
                 name = next((tag['Value'] for tag in instance.get('Tags', []) if tag['Key'] == 'Name'), 'unnamed')
                 
-                print(f"    {state_icon} {Colors.CYAN}{name}{Colors.END} ({instance['InstanceId']}) - {Colors.GREEN}{instance.get('PrivateIpAddress', 'N/A')}{Colors.END} - {Colors.YELLOW}{instance['InstanceType']}{Colors.END}")
+                print(f"    {state_marker} {Colors.CYAN}{name}{Colors.END} ({instance['InstanceId']}) - {Colors.GREEN}{instance.get('PrivateIpAddress', 'N/A')}{Colors.END} - {Colors.YELLOW}{instance['InstanceType']}{Colors.END}")
         
         print()
     
@@ -298,9 +314,9 @@ def diff_vpcs(args):
     only2 = subnets2 - subnets1
     
     if only1:
-        print(f"  {Colors.RED}−{Colors.END} Only in VPC 1: {', '.join(only1)}")
+        print(f"  {Colors.RED}[-]{Colors.END} Only in VPC 1: {', '.join(only1)}")
     if only2:
-        print(f"  {Colors.GREEN}+{Colors.END} Only in VPC 2: {', '.join(only2)}")
+        print(f"  {Colors.GREEN}[+]{Colors.END} Only in VPC 2: {', '.join(only2)}")
     print()
     
     # Compare instances
@@ -396,11 +412,11 @@ def analyze_security_groups(args):
     sgs = ec2.describe_security_groups(Filters=filters)['SecurityGroups']
     
     for sg in sgs:
-        print(f"🛡️  {Colors.CYAN}{sg['GroupName']}{Colors.END} ({sg['GroupId']})")
+        print(f"Security Group: {Colors.CYAN}{sg['GroupName']}{Colors.END} ({sg['GroupId']})")
         print(f"  VPC: {Colors.GREEN}{sg['VpcId']}{Colors.END}")
         
         if sg.get('IpPermissions'):
-            print(f"  {Colors.GREEN}⬇️  Inbound:{Colors.END}")
+            print(f"  {Colors.GREEN}Inbound Rules:{Colors.END}")
             for rule in sg['IpPermissions']:
                 protocol = rule.get('IpProtocol', '-1')
                 from_port = rule.get('FromPort', 'ALL')
@@ -411,7 +427,7 @@ def analyze_security_groups(args):
                     print(f"    • {Colors.YELLOW}{protocol}{Colors.END}{port_str} from {Colors.GREEN}{ip_range['CidrIp']}{Colors.END}")
         
         if sg.get('IpPermissionsEgress'):
-            print(f"  {Colors.RED}⬆️  Outbound:{Colors.END}")
+            print(f"  {Colors.RED}Outbound Rules:{Colors.END}")
             for rule in sg['IpPermissionsEgress']:
                 protocol = rule.get('IpProtocol', '-1')
                 for ip_range in rule.get('IpRanges', []):
