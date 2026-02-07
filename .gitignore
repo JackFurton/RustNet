@@ -1,0 +1,15 @@
+# Rust
+/target/
+Cargo.lock
+
+# Generated files
+*.dot
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
