@@ -79,6 +79,10 @@ enum Commands {
         /// VPC ID to filter
         #[arg(short, long)]
         vpc: Option<String>,
+        
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
     
     /// Compare two VPCs
@@ -285,8 +289,8 @@ fn main() -> Result<()> {
             aws::analyze_security_groups(&region, vpc.as_deref())?;
         }
         
-        Commands::Compliance { region, vpc } => {
-            aws::check_compliance(&region, vpc.as_deref())?;
+        Commands::Compliance { region, vpc, json } => {
+            aws::check_compliance(&region, vpc.as_deref(), json)?;
         }
         
         Commands::Diff { vpc1, vpc2, region } => {
