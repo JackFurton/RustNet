@@ -70,6 +70,17 @@ enum Commands {
         vpc: Option<String>,
     },
     
+    /// Check security group compliance
+    Compliance {
+        /// AWS Region
+        #[arg(short, long, default_value = "us-east-1")]
+        region: String,
+        
+        /// VPC ID to filter
+        #[arg(short, long)]
+        vpc: Option<String>,
+    },
+    
     /// Compare two VPCs
     Diff {
         /// First VPC ID
@@ -272,6 +283,10 @@ fn main() -> Result<()> {
         
         Commands::SecGroups { region, vpc } => {
             aws::analyze_security_groups(&region, vpc.as_deref())?;
+        }
+        
+        Commands::Compliance { region, vpc } => {
+            aws::check_compliance(&region, vpc.as_deref())?;
         }
         
         Commands::Diff { vpc1, vpc2, region } => {

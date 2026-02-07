@@ -668,3 +668,180 @@ pub fn diff_vpcs(region: &str, vpc1_id: &str, vpc2_id: &str) -> Result<()> {
     
     Ok(())
 }
+
+#[derive(Debug)]
+struct ComplianceIssue {
+    severity: &'static str,
+    sg_id: String,
+    sg_name: String,
+    rule_type: String,
+    protocol: String,
+    port: String,
+    source: String,
+    description: String,
+}
+
+pub fn check_compliance(region: &str, vpc_filter: Option<&str>) -> Result<()> {
+    println!("{}", "Security Compliance Check".cyan().bold());
+    println!("{}", "═".repeat(70).bright_black());
+    println!("Region: {}", region.yellow());
+    if let Some(vpc) = vpc_filter {
+        println!("VPC Filter: {}", vpc.yellow());
+    }
+    println!();
+    
+    let mut args = vec!["ec2", "describe-security-groups", "--region", region];
+    let filter_arg;
+    if let Some(vpc) = vpc_filter {
+        filter_arg = format!("Name=vpc-id,Values={}", vpc);
+        args.extend(&["--filters", &filter_arg]);
+    }
+    
+    let output = Command::new("aws").args(&args).output()?;
+    
+    if !output.status.success() {
+        return Err(anyhow::anyhow!("Failed to describe security groups"));
+    }
+    
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+    let empty_vec = vec![];
+    let sgs = json["SecurityGroups"].as_array().unwrap_or(&empty_vec);
+    
+    let mut issues: Vec<ComplianceIssue> = Vec::new();
+    
+    // Risky ports to check
+    let risky_ports = vec![
+        (22, "SSH"),
+        (3389, "RDP"),
+        (3306, "MySQL"),
+        (5432, "PostgreSQL"),
+        (1433, "MSSQL"),
+        (27017, "MongoDB"),
+        (6379, "Redis"),
+        (9200, "Elasticsearch"),
+    ];
+    
+    for sg in sgs {
+        let sg_id = sg["GroupId"].as_str().unwrap_or("unknown").to_string();
+        let sg_name = sg["GroupName"].as_str().unwrap_or("unnamed").to_string();
+        
+        // Check ingress rules
+        if let Some(ingress) = sg["IpPermissions"].as_array() {
+            for rule in ingress {
+                let protocol = rule["IpProtocol"].as_str().unwrap_or("-1");
+                let from_port = rule["FromPort"].as_i64();
+                let to_port = rule["ToPort"].as_i64();
+                
+                // Check IP ranges
+                if let Some(ip_ranges) = rule["IpRanges"].as_array() {
+                    for ip_range in ip_ranges {
+                        let cidr = ip_range["CidrIp"].as_str().unwrap_or("unknown");
+                        
+                        // Check for 0.0.0.0/0
+                        if cidr == "0.0.0.0/0" {
+                            if protocol == "-1" {
+                                issues.push(ComplianceIssue {
+                                    severity: "CRITICAL",
+                                    sg_id: sg_id.clone(),
+                                    sg_name: sg_name.clone(),
+                                    rule_type: "Ingress".to_string(),
+                                    protocol: "ALL".to_string(),
+                                    port: "ALL".to_string(),
+                                    source: cidr.to_string(),
+                                    description: "All traffic allowed from internet".to_string(),
+                                });
+                            } else {
+                                // Check if it's a risky port
+                                for (port, service) in &risky_ports {
+                                    if let (Some(from), Some(to)) = (from_port, to_port) {
+                                        if from <= *port as i64 && *port as i64 <= to {
+                                            issues.push(ComplianceIssue {
+                                                severity: "HIGH",
+                                                sg_id: sg_id.clone(),
+                                                sg_name: sg_name.clone(),
+                                                rule_type: "Ingress".to_string(),
+                                                protocol: protocol.to_string(),
+                                                port: format!("{} ({})", port, service),
+                                                source: cidr.to_string(),
+                                                description: format!("{} exposed to internet", service),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Check for overly broad CIDR blocks
+                        if cidr.ends_with("/8") || cidr.ends_with("/16") {
+                            if let (Some(from), Some(to)) = (from_port, to_port) {
+                                for (port, service) in &risky_ports {
+                                    if from <= *port as i64 && *port as i64 <= to {
+                                        issues.push(ComplianceIssue {
+                                            severity: "MEDIUM",
+                                            sg_id: sg_id.clone(),
+                                            sg_name: sg_name.clone(),
+                                            rule_type: "Ingress".to_string(),
+                                            protocol: protocol.to_string(),
+                                            port: format!("{} ({})", port, service),
+                                            source: cidr.to_string(),
+                                            description: format!("{} exposed to large CIDR block", service),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort by severity
+    issues.sort_by(|a, b| {
+        let severity_order = |s: &str| match s {
+            "CRITICAL" => 0,
+            "HIGH" => 1,
+            "MEDIUM" => 2,
+            _ => 3,
+        };
+        severity_order(a.severity).cmp(&severity_order(b.severity))
+    });
+    
+    // Display issues
+    if issues.is_empty() {
+        println!("{}", "No compliance issues found".green().bold());
+    } else {
+        println!("Found {} issue(s):\n", issues.len().to_string().red().bold());
+        
+        for issue in &issues {
+            let severity_color = match issue.severity {
+                "CRITICAL" => issue.severity.red().bold(),
+                "HIGH" => issue.severity.yellow().bold(),
+                "MEDIUM" => issue.severity.bright_yellow(),
+                _ => issue.severity.normal(),
+            };
+            
+            println!("[{}] {} ({})", severity_color, issue.sg_name.cyan(), issue.sg_id.bright_black());
+            println!("  Type: {}", issue.rule_type);
+            println!("  Protocol: {} Port: {}", issue.protocol, issue.port.yellow());
+            println!("  Source: {}", issue.source.red());
+            println!("  Issue: {}", issue.description.bright_black());
+            println!();
+        }
+    }
+    
+    println!("{}", "═".repeat(70).bright_black());
+    
+    // Summary
+    let critical = issues.iter().filter(|i| i.severity == "CRITICAL").count();
+    let high = issues.iter().filter(|i| i.severity == "HIGH").count();
+    let medium = issues.iter().filter(|i| i.severity == "MEDIUM").count();
+    
+    println!("Summary: {} critical, {} high, {} medium", 
+        critical.to_string().red().bold(),
+        high.to_string().yellow().bold(),
+        medium.to_string().bright_yellow()
+    );
+    
+    Ok(())
+}
