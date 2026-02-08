@@ -1,0 +1,126 @@
+[33mcommit eb52669ef5c59c8ea49bda9aceee186110f781cd[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sun Feb 8 14:22:10 2026 +0000
+
+    Remove compliance workflow - requires AWS credentials
+
+[33mcommit b45a7d8373997d5b48c56e3945d762d6d8055942[m
+Author: Krog <36176901+JackFurton@users.noreply.github.com>
+Date:   Sun Feb 8 09:19:06 2026 -0500
+
+    Update compliance.yml
+
+[33mcommit 4bb200caa07978e7dc4953d5218d1483cc1c2bdc[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 22:36:22 2026 +0000
+
+    Remove emojis from Python version for diode compatibility
+    
+    Replace all emojis with ASCII markers:
+    - [RUNNING]/[STOPPED]/[TERMINATED] for instance states
+    - [IGW]/[NAT]/[TGW]/[LOCAL] for route types
+    - [DEFAULT] for default VPCs
+    - [+]/[-] for diff operations
+    
+    Ensures compatibility with security diodes that reject non-ASCII characters
+
+[33mcommit 708ac3aa4bb9a6b91c2f51a7b42614da7bf5c6c9[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 22:33:59 2026 +0000
+
+    Add Python version with full feature parity
+    
+    - netkit.py: Portable single-file Python version
+    - All Rust features implemented (compliance, vpc-map, diff, cost, sec-groups, subnet)
+    - Perfect for isolated/hardened ADC environments
+    - No compilation needed, just boto3
+    - ~600 lines of readable Python code
+    
+    See PYTHON.md for documentation
+
+[33mcommit 736ba41113a0ddd406c83ee0809d6e6d0cdb229f[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 21:16:04 2026 +0000
+
+    Add CI/CD integration examples
+    
+    - GitHub Actions workflow for automated compliance checks
+    - GitLab CI, Jenkins, AWS CodePipeline examples
+    - Slack notification script
+    - Pre-commit hook example
+    - Exit codes: 0=ok, 1=high, 2=critical
+    
+    See CI_CD.md for complete documentation
+
+[33mcommit 9d69669006cedb1476da688d865c127013c49e03[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 21:12:08 2026 +0000
+
+    Add subnet calculator
+    
+    Calculate optimal subnet splits for VPC CIDR blocks
+    - Automatically determines prefix length
+    - Shows usable hosts per subnet
+    - Validates subnet count (max /28)
+    
+    Example: netkit subnet 10.0.0.0/16 --count 4
+
+[33mcommit 2ae2a3cad59f38e3c1a83df114c6aa4280b6f9da[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 21:10:51 2026 +0000
+
+    Add multi-region scan, exit codes, and cost estimator
+    
+    Features:
+    - compliance --all-regions: Scan all AWS regions at once
+    - compliance --strict: Exit with error code (0=ok, 1=high, 2=critical)
+    - cost: Estimate monthly AWS costs for NAT/TGW
+    - JSON output support for CI/CD integration
+    
+    Exit codes enable CI/CD pipelines to fail on security issues
+
+[33mcommit 5efca6732ebfbba430f1498b69bff4c4bd980186[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 20:41:10 2026 +0000
+
+    Add refactoring plan
+    
+    Document professional Rust project structure
+    Current: monolithic aws.rs (900+ lines)
+    Target: modular structure with separate files per feature
+    
+    See REFACTORING.md for details
+
+[33mcommit 137d9cefcd590f1591fee3e97443cc66b77c9ad0[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 20:37:22 2026 +0000
+
+    Refactor: reduce nesting + add JSON export
+    
+    - Extract helper functions to flatten nested loops
+    - Add --json flag to compliance checker
+    - Machine-readable output for CI/CD integration
+
+[33mcommit 172453ed760ea9fe0ea242cf81c104698385dbfc[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 20:34:45 2026 +0000
+
+    Add security compliance checker
+    
+    - Flags security groups with risky rules
+    - Checks for 0.0.0.0/0 exposure on sensitive ports
+    - Severity levels: CRITICAL, HIGH, MEDIUM
+    - Detects SSH, RDP, databases exposed to internet
+
+[33mcommit ff30362bff3e5c1c2b9f8ab702a521fa4a705dee[m
+Author: EC2 Default User <ec2-user@ip-172-31-64-27.ec2.internal>
+Date:   Sat Feb 7 20:31:12 2026 +0000
+
+    Initial commit: netkit v0.1.0
+    
+    Features:
+    - Local network discovery and scanning
+    - AWS VPC topology mapping with route tables
+    - Security group analysis
+    - VPC comparison (diff mode)
+    - Graphviz DOT export
